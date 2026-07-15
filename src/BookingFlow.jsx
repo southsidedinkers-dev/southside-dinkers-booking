@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabaseClient";
-import { sendBookingConfirmedEmail } from "./emailClient";
+import { sendPendingEmail } from "./emailClient";
 import { Calendar, Clock, UserRound, Wallet, CalendarCheck2 } from "lucide-react";
 import QRCode from "qrcode";
 
@@ -305,7 +305,7 @@ export default function BookingFlow() {
       QRCode.toDataURL(newRef, { width: 200, margin: 1, color: { dark: "#1B2E57", light: "#FFFFFF" } })
         .then(setQrDataUrl)
         .catch(() => setQrDataUrl(""));
-      sendBookingConfirmedEmail({
+      sendPendingEmail({
         to_name: name,
         to_email: email,
         booking_ref: newRef,
@@ -557,15 +557,15 @@ export default function BookingFlow() {
           {step === 5 && (
             <div style={{ textAlign: "center", padding: "30px 6px 10px" }}>
               <div style={{ width: 78, height: 78, borderRadius: "50%", background: COLORS.green, color: COLORS.greenText, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", fontSize: 40, fontWeight: 800, animation: "sdpop .45s ease-out" }}>✓</div>
-              <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 30 }}>You're booked!</div>
-              <div style={{ fontSize: 14, color: COLORS.muted, marginTop: 4 }}>A confirmation email is on its way.</div>
+              <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 30 }}>Booking request received!</div>
+              <div style={{ fontSize: 14, color: COLORS.muted, marginTop: 4 }}>Here's what happens next.</div>
 
-              <div style={{ background: "#EEF6DC", border: "1px solid #D9EAB0", borderRadius: 14, padding: "14px 16px", margin: "18px 0 0", textAlign: "left" }}>
-                <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 15, textTransform: "uppercase", letterSpacing: ".5px", color: "#3C4A22" }}>
-                  Booking confirmed
+              <div style={{ background: "#FFF7E0", border: "1px solid #F0D98A", borderRadius: 14, padding: "14px 16px", margin: "18px 0 0", textAlign: "left" }}>
+                <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 15, textTransform: "uppercase", letterSpacing: ".5px", color: "#7A5D00" }}>
+                  This is NOT a confirmed booking yet
                 </div>
-                <div style={{ fontSize: 13, color: "#3C4A22", marginTop: 4 }}>
-                  Your slot is reserved. See you on the southside!
+                <div style={{ fontSize: 13, color: "#7A5D00", marginTop: 4 }}>
+                  We're verifying your payment. You'll get a second email once that's done -- your slot is already reserved in the meantime.
                 </div>
               </div>
 
