@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
+import { sendConfirmedEmail } from "./emailClient";
 
 const COLORS = {
   navy: "#1B2E57",
@@ -25,6 +26,13 @@ function formatHours(hours) {
   return hours.map(fmtHour).join(", ");
 }
 
+function formatDateNice(dateStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+}
+
 export default function AdminApp() {
   const [session, setSession] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -37,6 +45,9 @@ export default function AdminApp() {
   const [loadingBookings, setLoadingBookings] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [isMobile, setIsMobile] = useState(window.innerWidth < 700);
+  const [isOpen, setIsOpen] = useState(null);
+  const [closedMessage, setClosedMessage] = useState("");
+  const [savingToggle, setSavingToggle] = useState(false);
 
   useEffect(() => {
     function handleResize() {
@@ -58,8 +69,31 @@ export default function AdminApp() {
   }, []);
 
   useEffect(() => {
-    if (session) loadBookings();
+    if (session) {
+      loadBookings();
+      loadSiteSettings();
+    }
   }, [session]);
+
+  async function loadSiteSettings() {
+    const { data } = await supabase.from("site_settings").select("is_open, closed_message").eq("id", 1).single();
+    if (data) {
+      setIsOpen(data.is_open);
+      setClosedMessage(data.closed_message);
+    }
+  }
+
+  async function toggleOpen() {
+    setSavingToggle(true);
+    const newValue = !isOpen;
+    const { error } = await supabase.from("site_settings").update({ is_open: newValue }).eq("id", 1);
+    setSavingToggle(false);
+    if (!error) setIsOpen(newValue);
+  }
+
+  async function saveClosedMessage() {
+    await supabase.from("site_settings").update({ closed_message: closedMessage }).eq("id", 1);
+  }
 
   async function loadBookings() {
     setLoadingBookings(true);
@@ -86,10 +120,47 @@ export default function AdminApp() {
     setBookings([]);
   }
 
-  async function handleCancel(ref) {
-    if (!window.confirm("Cancel booking " + ref + "? This frees up its time slot immediately.")) return;
+  function emailParamsFor(b) {
+    return {
+      to_name: b.customer_name,
+      to_email: b.customer_email,
+      booking_ref: b.ref,
+      booking_date: formatDateNice(b.booking_date),
+      booking_times: formatHours(b.hours),
+      booking_total: peso(b.total),
+      court_label: b.court || "Court 1",
+    };
+  }
+
+  async function handleConfirm(b) {
+    if (!window.confirm("Confirm booking " + b.ref + "? The customer will get a confirmation email.")) return;
     setActionMsg("");
-    const { data, error } = await supabase.rpc("cancel_booking", { p_ref: ref });
+    const { error } = await supabase.rpc("confirm_booking", { p_ref: b.ref });
+    if (error) {
+      setActionMsg("Error: " + error.message);
+      return;
+    }
+    setActionMsg("Confirmed " + b.ref + ".");
+    sendConfirmedEmail(emailParamsFor(b));
+    loadBookings();
+  }
+
+  async function handleDecline(b) {
+    if (!window.confirm("Decline booking " + b.ref + "? This frees up its time slot. No email is sent -- the customer's pending email already told them to reach out if they don't hear back.")) return;
+    setActionMsg("");
+    const { error } = await supabase.rpc("decline_booking", { p_ref: b.ref });
+    if (error) {
+      setActionMsg("Error: " + error.message);
+      return;
+    }
+    setActionMsg("Declined " + b.ref + " and freed its time slot.");
+    loadBookings();
+  }
+
+  async function handleCancel(b) {
+    if (!window.confirm("Cancel booking " + b.ref + "? This frees up its time slot immediately. No email is sent for this.")) return;
+    setActionMsg("");
+    const { data, error } = await supabase.rpc("cancel_booking", { p_ref: b.ref });
     if (error) {
       setActionMsg("Error: " + error.message);
     } else {
@@ -136,6 +207,50 @@ export default function AdminApp() {
           </button>
         </div>
 
+        {isOpen !== null && (
+          <div style={{
+            background: "#fff", border: `1px solid ${isOpen ? COLORS.border : "#F0D98A"}`, borderRadius: 14, padding: 16, marginBottom: 16,
+            display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12, alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button
+                onClick={toggleOpen}
+                disabled={savingToggle}
+                aria-label={isOpen ? "Site is open, click to close" : "Site is closed, click to open"}
+                style={{
+                  width: 46, height: 26, borderRadius: 20, border: "none", cursor: "pointer", position: "relative", flex: "none",
+                  background: isOpen ? COLORS.green : "#D7DBD1", transition: "background .15s",
+                }}
+              >
+                <div style={{ position: "absolute", top: 3, left: isOpen ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+              </button>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy }}>
+                  {isOpen ? "Bookings are OPEN" : "Bookings are CLOSED"}
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.muted }}>
+                  {isOpen ? "Customers can book normally." : "Customers see your closed message instead of the booking form."}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isOpen === false && (
+          <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: COLORS.muted, marginBottom: 6 }}>
+              Message customers see while closed
+            </label>
+            <textarea
+              value={closedMessage}
+              onChange={(e) => setClosedMessage(e.target.value)}
+              onBlur={saveClosedMessage}
+              rows={2}
+              style={{ width: "100%", padding: 10, border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14, fontFamily: "inherit", resize: "vertical" }}
+            />
+          </div>
+        )}
+
         {actionMsg && (
           <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13 }}>{actionMsg}</div>
         )}
@@ -153,8 +268,8 @@ export default function AdminApp() {
                     <span style={{ fontWeight: 700, color: COLORS.navy, fontSize: 15 }}>{b.ref}</span>
                     <span style={{
                       padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, textTransform: "uppercase",
-                      background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : "#FFF7E0",
-                      color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : "#7A5D00",
+                      background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : b.status === "declined" ? "#FDECEC" : "#FFF7E0",
+                      color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : b.status === "declined" ? "#8A2323" : "#7A5D00",
                     }}>{b.status}</span>
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{b.customer_name}</div>
@@ -164,14 +279,24 @@ export default function AdminApp() {
                     <div>{b.customer_facebook}</div>
                     <div style={{ fontWeight: 700 }}>{peso(b.total)}</div>
                   </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     {b.payment_reference && (
                       <a href={b.payment_reference} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: "center", padding: "9px 0", background: COLORS.bg, color: COLORS.navy, borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
                         View proof
                       </a>
                     )}
-                    {b.status !== "cancelled" && (
-                      <button onClick={() => handleCancel(b.ref)} style={{ flex: 1, padding: "9px 0", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                    {b.status === "pending_payment" && (
+                      <>
+                        <button onClick={() => handleConfirm(b)} style={{ flex: 1, padding: "9px 0", background: "#EEF6DC", color: "#3C4A22", border: "1px solid #D9EAB0", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                          Confirm
+                        </button>
+                        <button onClick={() => handleDecline(b)} style={{ flex: 1, padding: "9px 0", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                          Decline
+                        </button>
+                      </>
+                    )}
+                    {b.status === "confirmed" && (
+                      <button onClick={() => handleCancel(b)} style={{ flex: 1, padding: "9px 0", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
                         Cancel
                       </button>
                     )}
@@ -209,16 +334,26 @@ export default function AdminApp() {
                       <td style={tdStyle}>
                         <span style={{
                           padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, textTransform: "uppercase",
-                          background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : "#FFF7E0",
-                          color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : "#7A5D00",
+                          background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : b.status === "declined" ? "#FDECEC" : "#FFF7E0",
+                          color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : b.status === "declined" ? "#8A2323" : "#7A5D00",
                         }}>{b.status}</span>
                       </td>
                       <td style={tdStyle}>
                         {b.payment_reference ? <a href={b.payment_reference} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.navy }}>View</a> : "\u2014"}
                       </td>
                       <td style={tdStyle}>
-                        {b.status !== "cancelled" && (
-                          <button onClick={() => handleCancel(b.ref)} style={{ padding: "6px 12px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                        {b.status === "pending_payment" && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button onClick={() => handleConfirm(b)} style={{ padding: "6px 10px", background: "#EEF6DC", color: "#3C4A22", border: "1px solid #D9EAB0", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                              Confirm
+                            </button>
+                            <button onClick={() => handleDecline(b)} style={{ padding: "6px 10px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                              Decline
+                            </button>
+                          </div>
+                        )}
+                        {b.status === "confirmed" && (
+                          <button onClick={() => handleCancel(b)} style={{ padding: "6px 12px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
                             Cancel
                           </button>
                         )}
