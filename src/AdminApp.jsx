@@ -23,7 +23,8 @@ function fmtHour(h) {
 
 function formatHours(hours) {
   if (!Array.isArray(hours) || hours.length === 0) return "";
-  return hours.map(fmtHour).join(", ");
+  const sorted = [...hours].sort((a, b) => a - b);
+  return sorted.map((h) => fmtHour(h) + " - " + fmtHour(h + 1)).join(", ");
 }
 
 function formatDateNice(dateStr) {
