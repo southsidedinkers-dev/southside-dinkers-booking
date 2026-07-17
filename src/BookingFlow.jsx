@@ -157,6 +157,11 @@ export default function BookingFlow() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  // Clear any stale login session before a customer starts booking.
+  // Prevents a leftover admin/staff session from breaking uploads.
+  useEffect(() => {
+    supabase.auth.signOut().catch(() => {});
+  }, []);
 
   const day = dates[dateIdx];
 
