@@ -128,6 +128,15 @@ function formatPickedRanges(pickedSlots) {
   return ranges.map(([s, e]) => fmtHour(s) + " - " + fmtHour(e + 1)).join(", ");
 }
 
+// Lists every picked hour as its own "9:00 AM - 10:00 AM" block, one per
+// hour, instead of merging consecutive hours into a single range -- makes
+// it unmistakable how many hours were actually booked at a glance.
+function formatPickedHoursIndividually(pickedSlots) {
+  if (!pickedSlots.length) return "\u2014";
+  const sorted = [...pickedSlots].sort((a, b) => a.hour - b.hour);
+  return sorted.map((s) => fmtHour(s.hour) + " - " + fmtHour(s.hour + 1)).join(", ");
+}
+
 export default function BookingFlow() {
   const dates = useMemo(buildDates, []);
   const [siteOpen, setSiteOpen] = useState(null); // null = still checking
@@ -310,7 +319,7 @@ export default function BookingFlow() {
         to_email: email,
         booking_ref: newRef,
         booking_date: day.dowFull + ", " + day.mon + " " + day.dom,
-        booking_times: formatPickedRanges(picked),
+        booking_times: formatPickedHoursIndividually(picked),
         booking_total: peso(total),
         court_label: COURT_LABEL,
       });
@@ -576,7 +585,7 @@ export default function BookingFlow() {
                     <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 18, letterSpacing: "1px" }}>{ref}</span>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{day.dowFull}, {day.mon} {day.dom}</div>
-                  <div style={{ fontSize: 14, color: COLORS.muted, marginTop: 2 }}>{formatPickedRanges(picked)}</div>
+                  <div style={{ fontSize: 14, color: COLORS.muted, marginTop: 2 }}>{formatPickedHoursIndividually(picked)}</div>
                 </div>
                 <div style={{ position: "relative", margin: "16px 0 0" }}>
                   <div style={{ borderTop: `1px dashed ${COLORS.border}` }} />
