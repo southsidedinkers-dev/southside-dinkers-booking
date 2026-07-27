@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabaseClient";
-import { sendPendingEmail } from "./emailClient";
+// emailClient import — pending email removed, only confirmation email used
 import { Calendar, Clock, UserRound, Wallet, CalendarCheck2 } from "lucide-react";
 import QRCode from "qrcode";
 
@@ -35,8 +35,8 @@ const ADDONS = [
 
 const BUSINESS_NAME = "Southside Dinkers";
 const COURT_LABEL = "Court 1";
-const OFF_PEAK_RATE = 250;
-const PEAK_RATE = 300;
+const OFF_PEAK_RATE = 300;
+const PEAK_RATE = 350;
 
 // Where you put your own GCash/Maya QR image. Drop a file named
 // gcash-qr.jpg into the /public folder and this path will pick it up.
@@ -128,15 +128,6 @@ function formatPickedRanges(pickedSlots) {
   return ranges.map(([s, e]) => fmtHour(s) + " - " + fmtHour(e + 1)).join(", ");
 }
 
-// Lists every picked hour as its own "9:00 AM - 10:00 AM" block, one per
-// hour, instead of merging consecutive hours into a single range -- makes
-// it unmistakable how many hours were actually booked at a glance.
-function formatPickedHoursIndividually(pickedSlots) {
-  if (!pickedSlots.length) return "\u2014";
-  const sorted = [...pickedSlots].sort((a, b) => a.hour - b.hour);
-  return sorted.map((s) => fmtHour(s.hour) + " - " + fmtHour(s.hour + 1)).join(", ");
-}
-
 export default function BookingFlow() {
   const dates = useMemo(buildDates, []);
   const [siteOpen, setSiteOpen] = useState(null); // null = still checking
@@ -157,11 +148,6 @@ export default function BookingFlow() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  // Clear any stale login session before a customer starts booking.
-  // Prevents a leftover admin/staff session from breaking uploads.
-  useEffect(() => {
-    supabase.auth.signOut().catch(() => {});
-  }, []);
 
   const day = dates[dateIdx];
 
@@ -319,15 +305,7 @@ export default function BookingFlow() {
       QRCode.toDataURL(newRef, { width: 200, margin: 1, color: { dark: "#1B2E57", light: "#FFFFFF" } })
         .then(setQrDataUrl)
         .catch(() => setQrDataUrl(""));
-      sendPendingEmail({
-        to_name: name,
-        to_email: email,
-        booking_ref: newRef,
-        booking_date: day.dowFull + ", " + day.mon + " " + day.dom,
-        booking_times: formatPickedHoursIndividually(picked),
-        booking_total: peso(total),
-        court_label: COURT_LABEL,
-      });
+      // Pending email removed — customer sees confirmation on screen instead
     } else {
       setStep((s) => Math.min(5, s + 1));
     }
@@ -579,7 +557,13 @@ export default function BookingFlow() {
                   This is NOT a confirmed booking yet
                 </div>
                 <div style={{ fontSize: 13, color: "#7A5D00", marginTop: 4 }}>
-                  We're verifying your payment. You'll get a second email once that's done -- your slot is already reserved in the meantime.
+                  We have received your request and your slot is already reserved. We are verifying your payment — once confirmed, you will receive a confirmation email.
+                </div>
+                <div style={{ fontSize: 13, color: "#7A5D00", marginTop: 8 }}>
+                  Confirmation may take a few minutes. If you have not received your confirmation email within 2 hours, please reach out to us on{" "}
+                  <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer" style={{ color: "#7A5D00", fontWeight: 700 }}>Facebook</a>
+                  {" "}or email{" "}
+                  <a href="mailto:southsidedinkers@gmail.com" style={{ color: "#7A5D00", fontWeight: 700 }}>southsidedinkers@gmail.com</a>.
                 </div>
               </div>
 
@@ -590,7 +574,7 @@ export default function BookingFlow() {
                     <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 18, letterSpacing: "1px" }}>{ref}</span>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{day.dowFull}, {day.mon} {day.dom}</div>
-                  <div style={{ fontSize: 14, color: COLORS.muted, marginTop: 2 }}>{formatPickedHoursIndividually(picked)}</div>
+                  <div style={{ fontSize: 14, color: COLORS.muted, marginTop: 2 }}>{formatPickedRanges(picked)}</div>
                 </div>
                 <div style={{ position: "relative", margin: "16px 0 0" }}>
                   <div style={{ borderTop: `1px dashed ${COLORS.border}` }} />
@@ -609,7 +593,8 @@ export default function BookingFlow() {
               </div>
 
               <div style={{ fontSize: 11, color: COLORS.mutedSoft, textAlign: "left", lineHeight: 1.5 }}>
-                <strong>Cancellation policy:</strong> Please give at least 24 hours' notice to cancel or reschedule. Cancellations received less than 12 hours before your booking time will not be entitled to a refund. To cancel or reschedule, message us on <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.navy, fontWeight: 700 }}>Facebook</a>.
+                <strong>No Refund Policy:</strong> Please refer to our full cancellation and no refund policy{" "}
+                <a href="/cancellation-policy.pdf" target="_blank" rel="noopener noreferrer" style={{ color: COLORS.navy, fontWeight: 700 }}>here</a>.
               </div>
 
               <button onClick={resetAll} style={{ marginTop: 14, width: "100%", padding: 10, border: "none", background: "none", color: COLORS.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", textDecoration: "underline" }}>
