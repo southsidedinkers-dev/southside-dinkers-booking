@@ -10,6 +10,9 @@ const COLORS = {
   muted: "#6E7788",
 };
 
+const COURT_OPTIONS = ["Court 1"];
+const RECLUB_URL = "https://reclub.co/clubs/@southside-dinkers-2";
+
 function peso(n) {
   return "₱" + Number(n).toLocaleString("en-PH");
 }
@@ -23,8 +26,7 @@ function fmtHour(h) {
 
 function formatHours(hours) {
   if (!Array.isArray(hours) || hours.length === 0) return "";
-  const sorted = [...hours].sort((a, b) => a - b);
-  return sorted.map((h) => fmtHour(h) + " - " + fmtHour(h + 1)).join(", ");
+  return hours.map(fmtHour).join(", ");
 }
 
 function formatDateNice(dateStr) {
@@ -50,10 +52,18 @@ export default function AdminApp() {
   const [closedMessage, setClosedMessage] = useState("");
   const [savingToggle, setSavingToggle] = useState(false);
 
+  // Block slots state
+  const [blockedSlots, setBlockedSlots] = useState([]);
+  const [blockCourt, setBlockCourt] = useState("Court 1");
+  const [blockDate, setBlockDate] = useState("");
+  const [blockHours, setBlockHours] = useState([]);
+  const [blockType, setBlockType] = useState("blocked");
+  const [savingBlock, setSavingBlock] = useState(false);
+  const [blockMsg, setBlockMsg] = useState("");
+  const [showBlockPanel, setShowBlockPanel] = useState(false);
+
   useEffect(() => {
-    function handleResize() {
-      setIsMobile(window.innerWidth < 700);
-    }
+    function handleResize() { setIsMobile(window.innerWidth < 700); }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -63,9 +73,7 @@ export default function AdminApp() {
       setSession(data.session);
       setCheckingSession(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => { setSession(s); });
     return () => listener.subscription.unsubscribe();
   }, []);
 
@@ -73,15 +81,13 @@ export default function AdminApp() {
     if (session) {
       loadBookings();
       loadSiteSettings();
+      loadBlockedSlots();
     }
   }, [session]);
 
   async function loadSiteSettings() {
     const { data } = await supabase.from("site_settings").select("is_open, closed_message").eq("id", 1).single();
-    if (data) {
-      setIsOpen(data.is_open);
-      setClosedMessage(data.closed_message);
-    }
+    if (data) { setIsOpen(data.is_open); setClosedMessage(data.closed_message); }
   }
 
   async function toggleOpen() {
@@ -105,6 +111,38 @@ export default function AdminApp() {
       .order("created_at", { ascending: false });
     if (!error) setBookings(data || []);
     setLoadingBookings(false);
+  }
+
+  async function loadBlockedSlots() {
+    const { data } = await supabase
+      .from("blocked_slots")
+      .select("*")
+      .gte("date", new Date().toISOString().slice(0, 10))
+      .order("date", { ascending: true })
+      .order("hour", { ascending: true });
+    setBlockedSlots(data || []);
+  }
+
+  async function handleSaveBlock() {
+    if (!blockDate) { setBlockMsg("Please select a date."); return; }
+    if (blockHours.length === 0) { setBlockMsg("Please select at least one hour."); return; }
+    setSavingBlock(true);
+    setBlockMsg("");
+    const rows = blockHours.map(h => ({ court: blockCourt, date: blockDate, hour: h, type: blockType }));
+    const { error } = await supabase.from("blocked_slots").upsert(rows, { onConflict: "court,date,hour" });
+    setSavingBlock(false);
+    if (error) {
+      setBlockMsg("Error: " + error.message);
+    } else {
+      setBlockMsg(`Saved ${rows.length} slot(s) as ${blockType === "open_play" ? "Open Play" : "Blocked"}.`);
+      setBlockHours([]);
+      loadBlockedSlots();
+    }
+  }
+
+  async function handleRemoveBlock(id) {
+    await supabase.from("blocked_slots").delete().eq("id", id);
+    loadBlockedSlots();
   }
 
   async function handleLogin(e) {
@@ -137,46 +175,38 @@ export default function AdminApp() {
     if (!window.confirm("Confirm booking " + b.ref + "? The customer will get a confirmation email.")) return;
     setActionMsg("");
     const { error } = await supabase.rpc("confirm_booking", { p_ref: b.ref });
-    if (error) {
-      setActionMsg("Error: " + error.message);
-      return;
-    }
+    if (error) { setActionMsg("Error: " + error.message); return; }
     setActionMsg("Confirmed " + b.ref + ".");
     sendConfirmedEmail(emailParamsFor(b));
     loadBookings();
   }
 
   async function handleDecline(b) {
-    if (!window.confirm("Decline booking " + b.ref + "? This frees up its time slot. No email is sent -- the customer's pending email already told them to reach out if they don't hear back.")) return;
+    if (!window.confirm("Decline booking " + b.ref + "? This frees up its time slot. No email is sent.")) return;
     setActionMsg("");
     const { error } = await supabase.rpc("decline_booking", { p_ref: b.ref });
-    if (error) {
-      setActionMsg("Error: " + error.message);
-      return;
-    }
+    if (error) { setActionMsg("Error: " + error.message); return; }
     setActionMsg("Declined " + b.ref + " and freed its time slot.");
     loadBookings();
   }
 
   async function handleCancel(b) {
-    if (!window.confirm("Cancel booking " + b.ref + "? This frees up its time slot immediately. No email is sent for this.")) return;
+    if (!window.confirm("Cancel booking " + b.ref + "? This frees up its time slot immediately.")) return;
     setActionMsg("");
     const { data, error } = await supabase.rpc("cancel_booking", { p_ref: b.ref });
-    if (error) {
-      setActionMsg("Error: " + error.message);
-    } else {
-      setActionMsg(data);
-      loadBookings();
-    }
+    if (error) { setActionMsg("Error: " + error.message); }
+    else { setActionMsg(data); loadBookings(); }
+  }
+
+  function toggleBlockHour(h) {
+    setBlockHours(prev => prev.includes(h) ? prev.filter(x => x !== h) : [...prev, h].sort((a,b)=>a-b));
   }
 
   const inputStyle = { width: "100%", padding: "11px 13px", border: `1px solid ${COLORS.border}`, borderRadius: 10, fontSize: 15, marginBottom: 12 };
   const thStyle = { textAlign: "left", padding: "8px 10px", fontSize: 12, textTransform: "uppercase", letterSpacing: ".4px", color: COLORS.muted, borderBottom: `2px solid ${COLORS.border}` };
   const tdStyle = { padding: "10px 10px", fontSize: 13, borderBottom: `1px solid ${COLORS.border}`, verticalAlign: "top" };
 
-  if (checkingSession) {
-    return <div style={{ padding: 40, fontFamily: "sans-serif" }}>Loading\u2026</div>;
-  }
+  if (checkingSession) return <div style={{ padding: 40, fontFamily: "sans-serif" }}>Loading…</div>;
 
   if (!session) {
     return (
@@ -188,16 +218,20 @@ export default function AdminApp() {
           <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} required />
           {loginError && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 12 }}>{loginError}</div>}
           <button type="submit" disabled={loggingIn} style={{ width: "100%", padding: 12, background: COLORS.navy, color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer" }}>
-            {loggingIn ? "Logging in\u2026" : "Log In"}
+            {loggingIn ? "Logging in…" : "Log In"}
           </button>
         </form>
       </div>
     );
   }
 
+  const allHours = Array.from({ length: 18 }, (_, i) => i + 6); // 6am to 11pm
+
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, fontFamily: "sans-serif", padding: "24px 20px" }}>
       <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+
+        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div>
             <h1 style={{ margin: 0, color: COLORS.navy, fontSize: 24 }}>Bookings</h1>
@@ -208,30 +242,16 @@ export default function AdminApp() {
           </button>
         </div>
 
+        {/* Open/Close toggle */}
         {isOpen !== null && (
-          <div style={{
-            background: "#fff", border: `1px solid ${isOpen ? COLORS.border : "#F0D98A"}`, borderRadius: 14, padding: 16, marginBottom: 16,
-            display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12, alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between",
-          }}>
+          <div style={{ background: "#fff", border: `1px solid ${isOpen ? COLORS.border : "#F0D98A"}`, borderRadius: 14, padding: 16, marginBottom: 16, display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12, alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <button
-                onClick={toggleOpen}
-                disabled={savingToggle}
-                aria-label={isOpen ? "Site is open, click to close" : "Site is closed, click to open"}
-                style={{
-                  width: 46, height: 26, borderRadius: 20, border: "none", cursor: "pointer", position: "relative", flex: "none",
-                  background: isOpen ? COLORS.green : "#D7DBD1", transition: "background .15s",
-                }}
-              >
+              <button onClick={toggleOpen} disabled={savingToggle} style={{ width: 46, height: 26, borderRadius: 20, border: "none", cursor: "pointer", position: "relative", flex: "none", background: isOpen ? COLORS.green : "#D7DBD1", transition: "background .15s" }}>
                 <div style={{ position: "absolute", top: 3, left: isOpen ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
               </button>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy }}>
-                  {isOpen ? "Bookings are OPEN" : "Bookings are CLOSED"}
-                </div>
-                <div style={{ fontSize: 12, color: COLORS.muted }}>
-                  {isOpen ? "Customers can book normally." : "Customers see your closed message instead of the booking form."}
-                </div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy }}>{isOpen ? "Bookings are OPEN" : "Bookings are CLOSED"}</div>
+                <div style={{ fontSize: 12, color: COLORS.muted }}>{isOpen ? "Customers can book normally." : "Customers see your closed message instead of the booking form."}</div>
               </div>
             </div>
           </div>
@@ -239,26 +259,113 @@ export default function AdminApp() {
 
         {isOpen === false && (
           <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: COLORS.muted, marginBottom: 6 }}>
-              Message customers see while closed
-            </label>
-            <textarea
-              value={closedMessage}
-              onChange={(e) => setClosedMessage(e.target.value)}
-              onBlur={saveClosedMessage}
-              rows={2}
-              style={{ width: "100%", padding: 10, border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14, fontFamily: "inherit", resize: "vertical" }}
-            />
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: COLORS.muted, marginBottom: 6 }}>Message customers see while closed</label>
+            <textarea value={closedMessage} onChange={(e) => setClosedMessage(e.target.value)} onBlur={saveClosedMessage} rows={2} style={{ width: "100%", padding: 10, border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14, fontFamily: "inherit", resize: "vertical" }} />
           </div>
         )}
 
+        {/* ── BLOCK SLOTS PANEL ── */}
+        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, marginBottom: 16, overflow: "hidden" }}>
+          <div
+            onClick={() => setShowBlockPanel(p => !p)}
+            style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", userSelect: "none" }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy }}>🚫 Manage Blocked &amp; Open Play Slots</div>
+              <div style={{ fontSize: 12, color: COLORS.muted, marginTop: 2 }}>Block timeslots or mark them as Open Play</div>
+            </div>
+            <div style={{ fontSize: 18, color: COLORS.muted }}>{showBlockPanel ? "▲" : "▼"}</div>
+          </div>
+
+          {showBlockPanel && (
+            <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: 16 }}>
+              {/* Form */}
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.muted, marginBottom: 4 }}>COURT</label>
+                  <select value={blockCourt} onChange={e => setBlockCourt(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }}>
+                    {COURT_OPTIONS.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.muted, marginBottom: 4 }}>DATE</label>
+                  <input type="date" value={blockDate} min={new Date().toISOString().slice(0,10)} onChange={e => setBlockDate(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.muted, marginBottom: 4 }}>TYPE</label>
+                  <select value={blockType} onChange={e => setBlockType(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }}>
+                    <option value="blocked">🚫 Blocked</option>
+                    <option value="open_play">🏓 Open Play</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Hour picker */}
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.muted, marginBottom: 8 }}>SELECT HOURS</label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, marginBottom: 14 }}>
+                {allHours.map(h => {
+                  const selected = blockHours.includes(h);
+                  const isPeak = h >= 16;
+                  return (
+                    <button
+                      key={h}
+                      onClick={() => toggleBlockHour(h)}
+                      style={{
+                        padding: "7px 4px", fontSize: 11, borderRadius: 8, cursor: "pointer", textAlign: "center",
+                        border: selected ? "2px solid " + COLORS.navy : `1px solid ${COLORS.border}`,
+                        background: selected ? COLORS.navy : isPeak ? "#FFFBEB" : "#fff",
+                        color: selected ? "#fff" : isPeak ? "#92400E" : COLORS.navy,
+                        fontWeight: selected ? 700 : 400,
+                      }}
+                    >
+                      {fmtHour(h)}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <button
+                  onClick={handleSaveBlock}
+                  disabled={savingBlock}
+                  style={{ padding: "10px 20px", background: COLORS.navy, color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+                >
+                  {savingBlock ? "Saving…" : "Save Slots"}
+                </button>
+                {blockMsg && <span style={{ fontSize: 13, color: blockMsg.startsWith("Error") ? "#c0392b" : "#3C4A22" }}>{blockMsg}</span>}
+              </div>
+
+              {/* Current blocked slots list */}
+              {blockedSlots.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.muted, textTransform: "uppercase", marginBottom: 8 }}>Current Blocked / Open Play Slots</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {blockedSlots.map(s => (
+                      <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 8, background: s.type === "open_play" ? "#EEF6DC" : "#FFF7E0", border: `1px solid ${s.type === "open_play" ? "#D9EAB0" : "#F0D98A"}` }}>
+                        <span style={{ fontSize: 13, color: COLORS.navy }}>
+                          {s.type === "open_play" ? "🏓 Open Play" : "🚫 Blocked"} — {s.court} · {formatDateNice(s.date)} · {fmtHour(s.hour)}–{fmtHour(s.hour + 1)}
+                        </span>
+                        <button onClick={() => handleRemoveBlock(s.id)} style={{ fontSize: 11, padding: "4px 10px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 6, cursor: "pointer", fontWeight: 700 }}>
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Action message */}
         {actionMsg && (
           <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13 }}>{actionMsg}</div>
         )}
 
+        {/* Bookings table */}
         <div style={{ background: "#fff", borderRadius: 14, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
           {loadingBookings ? (
-            <div style={{ padding: 24, textAlign: "center", color: COLORS.muted }}>Loading bookings\u2026</div>
+            <div style={{ padding: 24, textAlign: "center", color: COLORS.muted }}>Loading bookings…</div>
           ) : bookings.length === 0 ? (
             <div style={{ padding: 24, textAlign: "center", color: COLORS.muted }}>No bookings yet.</div>
           ) : isMobile ? (
@@ -267,11 +374,7 @@ export default function AdminApp() {
                 <div key={b.id} style={{ padding: 14, borderBottom: `1px solid ${COLORS.border}` }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontWeight: 700, color: COLORS.navy, fontSize: 15 }}>{b.ref}</span>
-                    <span style={{
-                      padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, textTransform: "uppercase",
-                      background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : b.status === "declined" ? "#FDECEC" : "#FFF7E0",
-                      color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : b.status === "declined" ? "#8A2323" : "#7A5D00",
-                    }}>{b.status}</span>
+                    <span style={{ padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, textTransform: "uppercase", background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : b.status === "declined" ? "#FDECEC" : "#FFF7E0", color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : b.status === "declined" ? "#8A2323" : "#7A5D00" }}>{b.status}</span>
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{b.customer_name}</div>
                   <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 8 }}>{b.booking_date} · {formatHours(b.hours)}</div>
@@ -282,24 +385,16 @@ export default function AdminApp() {
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     {b.payment_reference && (
-                      <a href={b.payment_reference} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: "center", padding: "9px 0", background: COLORS.bg, color: COLORS.navy, borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
-                        View proof
-                      </a>
+                      <a href={b.payment_reference} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: "center", padding: "9px 0", background: COLORS.bg, color: COLORS.navy, borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>View proof</a>
                     )}
                     {b.status === "pending_payment" && (
                       <>
-                        <button onClick={() => handleConfirm(b)} style={{ flex: 1, padding: "9px 0", background: "#EEF6DC", color: "#3C4A22", border: "1px solid #D9EAB0", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
-                          Confirm
-                        </button>
-                        <button onClick={() => handleDecline(b)} style={{ flex: 1, padding: "9px 0", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
-                          Decline
-                        </button>
+                        <button onClick={() => handleConfirm(b)} style={{ flex: 1, padding: "9px 0", background: "#EEF6DC", color: "#3C4A22", border: "1px solid #D9EAB0", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Confirm</button>
+                        <button onClick={() => handleDecline(b)} style={{ flex: 1, padding: "9px 0", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Decline</button>
                       </>
                     )}
                     {b.status === "confirmed" && (
-                      <button onClick={() => handleCancel(b)} style={{ flex: 1, padding: "9px 0", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
-                        Cancel
-                      </button>
+                      <button onClick={() => handleCancel(b)} style={{ flex: 1, padding: "9px 0", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Cancel</button>
                     )}
                   </div>
                 </div>
@@ -333,30 +428,20 @@ export default function AdminApp() {
                       <td style={tdStyle}>{formatHours(b.hours)}</td>
                       <td style={tdStyle}>{peso(b.total)}</td>
                       <td style={tdStyle}>
-                        <span style={{
-                          padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, textTransform: "uppercase",
-                          background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : b.status === "declined" ? "#FDECEC" : "#FFF7E0",
-                          color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : b.status === "declined" ? "#8A2323" : "#7A5D00",
-                        }}>{b.status}</span>
+                        <span style={{ padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, textTransform: "uppercase", background: b.status === "confirmed" ? "#EEF6DC" : b.status === "cancelled" ? "#F0F1EC" : b.status === "declined" ? "#FDECEC" : "#FFF7E0", color: b.status === "confirmed" ? "#3C4A22" : b.status === "cancelled" ? "#8A93A1" : b.status === "declined" ? "#8A2323" : "#7A5D00" }}>{b.status}</span>
                       </td>
                       <td style={tdStyle}>
-                        {b.payment_reference ? <a href={b.payment_reference} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.navy }}>View</a> : "\u2014"}
+                        {b.payment_reference ? <a href={b.payment_reference} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.navy }}>View</a> : "—"}
                       </td>
                       <td style={tdStyle}>
                         {b.status === "pending_payment" && (
                           <div style={{ display: "flex", gap: 6 }}>
-                            <button onClick={() => handleConfirm(b)} style={{ padding: "6px 10px", background: "#EEF6DC", color: "#3C4A22", border: "1px solid #D9EAB0", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
-                              Confirm
-                            </button>
-                            <button onClick={() => handleDecline(b)} style={{ padding: "6px 10px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
-                              Decline
-                            </button>
+                            <button onClick={() => handleConfirm(b)} style={{ padding: "6px 10px", background: "#EEF6DC", color: "#3C4A22", border: "1px solid #D9EAB0", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Confirm</button>
+                            <button onClick={() => handleDecline(b)} style={{ padding: "6px 10px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Decline</button>
                           </div>
                         )}
                         {b.status === "confirmed" && (
-                          <button onClick={() => handleCancel(b)} style={{ padding: "6px 12px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
-                            Cancel
-                          </button>
+                          <button onClick={() => handleCancel(b)} style={{ padding: "6px 12px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Cancel</button>
                         )}
                       </td>
                     </tr>
