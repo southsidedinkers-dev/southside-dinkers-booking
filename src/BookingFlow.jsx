@@ -145,6 +145,7 @@ export default function BookingFlow() {
   const [ref, setRef] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [bookedHours, setBookedHours] = useState(new Set());
+  const [blockedSlotMap, setBlockedSlotMap] = useState({});
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -179,17 +180,18 @@ export default function BookingFlow() {
     async function loadSlots() {
       setLoadingSlots(true);
       setErrorMsg("");
-      const { data, error } = await supabase
-        .from("booking_slots")
-        .select("hour")
-        .eq("court", COURT_LABEL)
-        .eq("booking_date", day.iso);
+      const [{ data, error }, { data: blockedData }] = await Promise.all([
+        supabase.from("booking_slots").select("hour").eq("court", COURT_LABEL).eq("booking_date", day.iso),
+        supabase.from("blocked_slots").select("hour, type").eq("court", COURT_LABEL).eq("date", day.iso),
+      ]);
       if (cancelled) return;
       if (error) {
         setErrorMsg("Couldn't load availability. Check your internet connection and try again.");
         setBookedHours(new Set());
+        setBlockedSlotMap({});
       } else {
         setBookedHours(new Set(data.map((r) => r.hour)));
+        setBlockedSlotMap(Object.fromEntries((blockedData || []).map(r => [r.hour, r.type])));
       }
       setLoadingSlots(false);
     }
@@ -204,13 +206,14 @@ export default function BookingFlow() {
     for (let h = 6; h < 24; h++) {
       const peak = isPeak(h);
       const booked = bookedHours.has(h);
+      const blockedType = blockedSlotMap[h] || null; // 'blocked' | 'open_play' | null
       const key = "h" + h;
-      arr.push({ key, hour: h, time: fmtHour(h), peak, booked, price: peak ? PEAK_RATE : OFF_PEAK_RATE });
+      arr.push({ key, hour: h, time: fmtHour(h), peak, booked, blockedType, price: peak ? PEAK_RATE : OFF_PEAK_RATE });
     }
     return arr;
-  }, [bookedHours]);
+  }, [bookedHours, blockedSlotMap]);
 
-  const picked = slots.filter((s) => sel[s.key] && !s.booked);
+  const picked = slots.filter((s) => sel[s.key] && !s.booked && !s.blockedType);
   const total = picked.reduce((t, s) => t + s.price, 0);
 
   function toggleSlot(s) {
@@ -344,6 +347,8 @@ export default function BookingFlow() {
   });
   const slotStyle = (s, isSel) => {
     const base = { display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", justifyContent: "center", minHeight: 58, padding: "9px 12px", borderRadius: 13, fontFamily: "inherit", textAlign: "left" };
+    if (s.blockedType === "blocked") return { ...base, background: "#F0F1EC", border: "1px solid #ECEEE7", color: "#B4BCB2", cursor: "default" };
+    if (s.blockedType === "open_play") return { ...base, background: "#EEF6DC", border: "1px solid #D9EAB0", color: "#3C4A22", cursor: "default" };
     if (s.booked) return { ...base, background: COLORS.bookedBg, border: `1px solid ${COLORS.bookedBorder}`, color: COLORS.bookedText, cursor: "default" };
     if (isSel) return { ...base, background: COLORS.navy, border: `1px solid ${COLORS.navy}`, color: "#fff", cursor: "pointer", boxShadow: "0 6px 16px rgba(16,27,48,.28)" };
     if (s.peak) return { ...base, background: COLORS.peakBg, border: `1px solid ${COLORS.peakBorder}`, color: COLORS.peakText, cursor: "pointer", boxShadow: "0 2px 8px -3px rgba(16,27,48,.1)" };
@@ -449,14 +454,28 @@ export default function BookingFlow() {
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#fff", border: `1px solid ${COLORS.border}` }} />Off-peak</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: COLORS.peakBg, border: `1px solid ${COLORS.peakBorder}` }} />Peak</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: COLORS.bookedBg }} />Booked</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#F0F1EC", border: "1px solid #ECEEE7" }} />Blocked</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#EEF6DC", border: "1px solid #D9EAB0" }} />Open Play</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 9, opacity: loadingSlots ? 0.5 : 1 }}>
                 {slots.map((s) => (
-                  <button key={s.key} disabled={s.booked || loadingSlots} onClick={() => toggleSlot(s)} style={slotStyle(s, !!sel[s.key] && !s.booked)}>
+                  s.blockedType === "open_play" ? (
+                    <a key={s.key} href="https://reclub.co/clubs/@southside-dinkers-2" target="_blank" rel="noopener noreferrer" style={{ ...slotStyle(s, false), textDecoration: "none", display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                      <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 17 }}>{s.time} - {fmtHour(s.hour + 1)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".3px", textTransform: "uppercase" }}>Open Play</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.75 }}>Tap to join on Reclub</span>
+                    </a>
+                  ) : (
+                  <button key={s.key} disabled={s.booked || !!s.blockedType || loadingSlots} onClick={() => toggleSlot(s)} style={slotStyle(s, !!sel[s.key] && !s.booked && !s.blockedType)}>
                     <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 17 }}>{s.time} - {fmtHour(s.hour + 1)}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".3px", textTransform: "uppercase" }}>{s.booked ? "Booked" : "Available"}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.75 }}>{s.booked ? "" : peso(s.price) + (s.peak ? " \u00b7 Peak" : "")}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".3px", textTransform: "uppercase" }}>
+                      {s.booked ? "Booked" : s.blockedType === "blocked" ? "Blocked" : "Available"}
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.75 }}>
+                      {s.booked || s.blockedType === "blocked" ? "" : peso(s.price) + (s.peak ? " · Peak" : "")}
+                    </span>
                   </button>
+                  )
                 ))}
               </div>
             </div>
