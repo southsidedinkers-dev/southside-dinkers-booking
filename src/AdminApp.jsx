@@ -26,7 +26,20 @@ function fmtHour(h) {
 
 function formatHours(hours) {
   if (!Array.isArray(hours) || hours.length === 0) return "";
-  return hours.map(fmtHour).join(", ");
+  const sorted = [...hours].sort((a, b) => a - b);
+  const ranges = [];
+  let start = sorted[0], end = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end + 1) {
+      end = sorted[i];
+    } else {
+      ranges.push(fmtHour(start) + " - " + fmtHour(end + 1));
+      start = sorted[i];
+      end = sorted[i];
+    }
+  }
+  ranges.push(fmtHour(start) + " - " + fmtHour(end + 1));
+  return ranges.join(", ");
 }
 
 function formatDateNice(dateStr) {
