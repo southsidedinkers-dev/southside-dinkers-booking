@@ -478,7 +478,7 @@ export default function BookingFlow() {
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#EEF6DC", border: "1px solid #D9EAB0" }} />Open Play</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#FFFFFF", border: "1px solid #E4E6DD" }} />Message to Request</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 9, opacity: loadingSlots ? 0.5 : 1 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 9, opacity: loadingSlots ? 0.5 : 1, maxHeight: 380, overflowY: "auto", paddingRight: 2 }}>
                 {slots.map((s) => (
                   s.blockedType === "open_play" ? (
                     <a key={s.key} href="https://reclub.co/clubs/@southside-dinkers-2" target="_blank" rel="noopener noreferrer" style={{ ...slotStyle(s, false), textDecoration: "none", display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
