@@ -136,6 +136,7 @@ export default function BookingFlow() {
   const [closedMessage, setClosedMessage] = useState("");
   const [step, setStep] = useState(1);
   const [dateIdx, setDateIdx] = useState(0);
+  const [showAllDates, setShowAllDates] = useState(false);
   const [sel, setSel] = useState({});
   const [name, setName] = useState("");
   const [facebook, setFacebook] = useState("");
@@ -427,22 +428,38 @@ export default function BookingFlow() {
             <div style={{ background: "#FDECEC", border: "1px solid #F5C6C6", color: "#8A2323", borderRadius: 12, padding: "10px 13px", fontSize: 13, marginBottom: 14 }}>{errorMsg}</div>
           )}
 
-          {step === 1 && (
+                    {step === 1 && (
             <div>
               <div style={h1Style}><Calendar size={22} aria-hidden="true" style={{ verticalAlign: "-3px", marginRight: 8, color: "#8CC63F" }} />When do you want to play?</div>
               <div style={{ height: 16 }} />
-              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                {dates.map((d) => (
-                  <button key={d.idx} onClick={() => { setDateIdx(d.idx); setSel({}); }} style={dateRowStyle(d.idx === dateIdx)}>
-                    <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                      <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 22 }}>{d.dow}</span>
-                      <span style={{ fontSize: 16, opacity: 0.75 }}>{d.mon} {d.dom}</span>
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 20, background: d.idx === dateIdx ? "rgba(140,198,63,.25)" : COLORS.bookedBg, color: d.idx === dateIdx ? "#C8E89A" : COLORS.mutedSoft }}>
-                      {d.weekend ? "Weekend" : "Weekday"}
-                    </span>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+                {dates.slice(0, showAllDates ? 90 : 30).map((d) => {
+                  const isSel = d.idx === dateIdx;
+                  return (
+                    <button key={d.idx} onClick={() => { setDateIdx(d.idx); setSel({}); }} style={{
+                      display: "flex", flexDirection: "column", alignItems: "flex-start",
+                      padding: "14px 14px", borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
+                      background: isSel ? COLORS.navy : "#fff",
+                      color: isSel ? "#fff" : COLORS.navy,
+                      border: `1px solid ${isSel ? COLORS.navy : COLORS.border}`,
+                      boxShadow: isSel ? "0 8px 20px -8px rgba(16,27,48,.5)" : "0 2px 8px -3px rgba(16,27,48,.12)",
+                    }}>
+                      <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>{d.dow}</span>
+                      <span style={{ fontSize: 13, opacity: 0.75, marginTop: 2 }}>{d.mon} {d.dom}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, marginTop: 8, padding: "3px 8px", borderRadius: 20, background: isSel ? "rgba(140,198,63,.25)" : COLORS.bookedBg, color: isSel ? "#C8E89A" : COLORS.mutedSoft }}>
+                        {d.weekend ? "Weekend" : "Weekday"}
+                      </span>
+                    </button>
+                  );
+                })}
+                {!showAllDates && (
+                  <button
+                    onClick={() => setShowAllDates(true)}
+                    style={{ padding: "14px", borderRadius: 14, border: `1px dashed ${COLORS.border}`, background: "transparent", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700, color: COLORS.muted, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    See more →
                   </button>
-                ))}
+                )}
               </div>
             </div>
           )}
