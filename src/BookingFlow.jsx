@@ -48,7 +48,7 @@ const FACEBOOK_URL = "https://www.facebook.com/profile.php?id=61591661855012";
 function buildDates() {
   const today = todayInManila();
   const arr = [];
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 90; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     const wd = d.getDay();
@@ -95,9 +95,11 @@ function isoLocal(d) {
 }
 
 function fmtHour(h) {
-  const ap = h < 12 ? "AM" : "PM";
-  let hh = h % 12;
-  if (hh === 0) hh = 12;
+  const norm = ((h % 24) + 24) % 24;
+  if (norm === 0) return "12:00 AM";
+  if (norm === 12) return "12:00 PM";
+  const ap = norm < 12 ? "AM" : "PM";
+  const hh = norm % 12;
   return hh + ":00 " + ap;
 }
 function isPeak(h) {
@@ -203,7 +205,7 @@ export default function BookingFlow() {
 
   const slots = useMemo(() => {
     const arr = [];
-    for (let h = 6; h < 24; h++) {
+    for (let h = 5; h <= 26; h++) {
       const peak = isPeak(h);
       const booked = bookedHours.has(h);
       const blockedType = blockedSlotMap[h] || null; // 'blocked' | 'open_play' | null
@@ -348,6 +350,7 @@ export default function BookingFlow() {
   const slotStyle = (s, isSel) => {
     const base = { display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", justifyContent: "center", minHeight: 58, padding: "9px 12px", borderRadius: 13, fontFamily: "inherit", textAlign: "left" };
     if (s.blockedType === "blocked") return { ...base, background: "#F0F1EC", border: "1px solid #ECEEE7", color: "#B4BCB2", cursor: "default" };
+    if (s.blockedType === "message_request") return { ...base, cursor: "pointer" };
     if (s.blockedType === "open_play") return { ...base, background: "#EEF6DC", border: "1px solid #D9EAB0", color: "#3C4A22", cursor: "default" };
     if (s.booked) return { ...base, background: COLORS.bookedBg, border: `1px solid ${COLORS.bookedBorder}`, color: COLORS.bookedText, cursor: "default" };
     if (isSel) return { ...base, background: COLORS.navy, border: `1px solid ${COLORS.navy}`, color: "#fff", cursor: "pointer", boxShadow: "0 6px 16px rgba(16,27,48,.28)" };
@@ -456,6 +459,7 @@ export default function BookingFlow() {
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: COLORS.bookedBg }} />Booked</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#F0F1EC", border: "1px solid #ECEEE7" }} />Blocked</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#EEF6DC", border: "1px solid #D9EAB0" }} />Open Play</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#FFFFFF", border: "1px solid #E4E6DD" }} />Message to Request</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 9, opacity: loadingSlots ? 0.5 : 1 }}>
                 {slots.map((s) => (
@@ -466,13 +470,13 @@ export default function BookingFlow() {
                       <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.75 }}>Tap to join on Reclub</span>
                     </a>
                   ) : (
-                  <button key={s.key} disabled={s.booked || !!s.blockedType || loadingSlots} onClick={() => toggleSlot(s)} style={slotStyle(s, !!sel[s.key] && !s.booked && !s.blockedType)}>
+                  <button key={s.key} disabled={s.booked || (!!s.blockedType && s.blockedType !== "message_request") || loadingSlots} onClick={() => s.blockedType === "message_request" ? window.open("https://www.facebook.com/profile.php?id=61591661855012", "_blank") : toggleSlot(s)} style={slotStyle(s, !!sel[s.key] && !s.booked && !s.blockedType)}>
                     <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 17 }}>{s.time} - {fmtHour(s.hour + 1)}</span>
                     <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".3px", textTransform: "uppercase" }}>
-                      {s.booked ? "Booked" : s.blockedType === "blocked" ? "Blocked" : "Available"}
+                      {s.booked ? "Booked" : s.blockedType === "blocked" ? "Blocked" : s.blockedType === "message_request" ? "Message us to request" : "Available"}
                     </span>
                     <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.75 }}>
-                      {s.booked || s.blockedType === "blocked" ? "" : peso(s.price) + (s.peak ? " · Peak" : "")}
+                      {s.booked || s.blockedType === "blocked" ? "" : s.blockedType === "message_request" ? "Tap to message us →" : peso(s.price) + (s.peak ? " · Peak" : "")}
                     </span>
                   </button>
                   )
