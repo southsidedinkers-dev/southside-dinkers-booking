@@ -18,9 +18,11 @@ function peso(n) {
 }
 
 function fmtHour(h) {
-  const ap = h < 12 ? "AM" : "PM";
-  let hh = h % 12;
-  if (hh === 0) hh = 12;
+  const norm = ((h % 24) + 24) % 24;
+  if (norm === 0) return "12:00 AM";
+  if (norm === 12) return "12:00 PM";
+  const ap = norm < 12 ? "AM" : "PM";
+  const hh = norm % 12;
   return hh + ":00 " + ap;
 }
 
@@ -49,6 +51,133 @@ function formatDateNice(dateStr) {
   return date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
 }
 
+
+// ── CALENDAR PICKER COMPONENT ──
+function CalendarPicker({ blockDates, setBlockDates }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Build 3 months of data
+  const months = [];
+  for (let m = 0; m < 3; m++) {
+    const d = new Date(today.getFullYear(), today.getMonth() + m, 1);
+    months.push({ year: d.getFullYear(), month: d.getMonth() });
+  }
+
+  function dateKey(y, mo, d) {
+    return `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
+  function toggleDate(key) {
+    setBlockDates(prev => prev.includes(key) ? prev.filter(d => d !== key) : [...prev, key].sort());
+  }
+
+  function selectWeekday(dow) {
+    const toAdd = [];
+    months.forEach(({ year, month }) => {
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(year, month, d);
+        if (date >= today && date.getDay() === dow) {
+          toAdd.push(dateKey(year, month, d));
+        }
+      }
+    });
+    setBlockDates(prev => {
+      const set = new Set(prev);
+      const allSelected = toAdd.every(d => set.has(d));
+      if (allSelected) { toAdd.forEach(d => set.delete(d)); }
+      else { toAdd.forEach(d => set.add(d)); }
+      return [...set].sort();
+    });
+  }
+
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  return (
+    <div>
+      {/* Weekday quick-select buttons */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {DAYS.map((day, i) => (
+          <button
+            key={day}
+            onClick={() => selectWeekday(i)}
+            style={{
+              padding: "5px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer", fontWeight: 600,
+              border: "1px solid #1B2E57", background: "#1B2E57", color: "#fff",
+            }}
+          >
+            All {day}s
+          </button>
+        ))}
+        {blockDates.length > 0 && (
+          <button
+            onClick={() => setBlockDates([])}
+            style={{ padding: "5px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer", fontWeight: 600, border: "1px solid #E4E6DD", background: "#FDECEC", color: "#8A2323" }}
+          >
+            Clear all ({blockDates.length})
+          </button>
+        )}
+      </div>
+
+      {/* 3-month calendar grids */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {months.map(({ year, month }) => {
+          const firstDay = new Date(year, month, 1).getDay();
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const cells = [];
+          for (let i = 0; i < firstDay; i++) cells.push(null);
+          for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+          return (
+            <div key={`${year}-${month}`}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#1B2E57", marginBottom: 6 }}>
+                {MONTHS[month]} {year}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+                {DAYS.map(d => (
+                  <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#6E7788", padding: "4px 0" }}>{d}</div>
+                ))}
+                {cells.map((d, idx) => {
+                  if (!d) return <div key={`empty-${idx}`} />;
+                  const key = dateKey(year, month, d);
+                  const date = new Date(year, month, d);
+                  const isPast = date < today;
+                  const isSelected = blockDates.includes(key);
+                  const isToday = date.getTime() === today.getTime();
+                  return (
+                    <button
+                      key={key}
+                      disabled={isPast}
+                      onClick={() => toggleDate(key)}
+                      style={{
+                        padding: "6px 2px", fontSize: 12, borderRadius: 6, cursor: isPast ? "default" : "pointer",
+                        border: isToday ? "2px solid #1B2E57" : "1px solid #E4E6DD",
+                        background: isSelected ? "#1B2E57" : isPast ? "#F9FAFB" : "#fff",
+                        color: isSelected ? "#fff" : isPast ? "#C9CDD6" : "#1B2E57",
+                        fontWeight: isSelected ? 700 : 400,
+                      }}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {blockDates.length > 0 && (
+        <div style={{ marginTop: 10, fontSize: 12, color: "#3C4A22", fontWeight: 600 }}>
+          {blockDates.length} date(s) selected
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminApp() {
   const [session, setSession] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -68,12 +197,13 @@ export default function AdminApp() {
   // Block slots state
   const [blockedSlots, setBlockedSlots] = useState([]);
   const [blockCourt, setBlockCourt] = useState("Court 1");
-  const [blockDate, setBlockDate] = useState("");
+  const [blockDates, setBlockDates] = useState([]);
   const [blockHours, setBlockHours] = useState([]);
   const [blockType, setBlockType] = useState("blocked");
   const [savingBlock, setSavingBlock] = useState(false);
   const [blockMsg, setBlockMsg] = useState("");
   const [showBlockPanel, setShowBlockPanel] = useState(false);
+  const [bookingFilter, setBookingFilter] = useState("pending");
 
   useEffect(() => {
     function handleResize() { setIsMobile(window.innerWidth < 700); }
@@ -120,7 +250,6 @@ export default function AdminApp() {
     const { data, error } = await supabase
       .from("bookings")
       .select("*")
-      .order("booking_date", { ascending: true })
       .order("created_at", { ascending: false });
     if (!error) setBookings(data || []);
     setLoadingBookings(false);
@@ -137,17 +266,23 @@ export default function AdminApp() {
   }
 
   async function handleSaveBlock() {
-    if (!blockDate) { setBlockMsg("Please select a date."); return; }
+    if (blockDates.length === 0) { setBlockMsg("Please select at least one date."); return; }
     if (blockHours.length === 0) { setBlockMsg("Please select at least one hour."); return; }
     setSavingBlock(true);
     setBlockMsg("");
-    const rows = blockHours.map(h => ({ court: blockCourt, date: blockDate, hour: h, type: blockType }));
+    const rows = [];
+    blockDates.forEach(date => {
+      blockHours.forEach(h => {
+        rows.push({ court: blockCourt, date, hour: h, type: blockType });
+      });
+    });
     const { error } = await supabase.from("blocked_slots").upsert(rows, { onConflict: "court,date,hour" });
     setSavingBlock(false);
     if (error) {
       setBlockMsg("Error: " + error.message);
     } else {
-      setBlockMsg(`Saved ${rows.length} slot(s) as ${blockType === "open_play" ? "Open Play" : "Blocked"}.`);
+      setBlockMsg(`Saved ${rows.length} slot(s) across ${blockDates.length} date(s) as ${blockType === "open_play" ? "Open Play" : blockType === "message_request" ? "Message to Request" : "Blocked"}.`);
+      setBlockDates([]);
       setBlockHours([]);
       loadBlockedSlots();
     }
@@ -238,7 +373,7 @@ export default function AdminApp() {
     );
   }
 
-  const allHours = Array.from({ length: 18 }, (_, i) => i + 6); // 6am to 11pm
+  const allHours = Array.from({ length: 22 }, (_, i) => i + 5); // 5am to 2am next day
 
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, fontFamily: "sans-serif", padding: "24px 20px" }}>
@@ -300,15 +435,16 @@ export default function AdminApp() {
                     {COURT_OPTIONS.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.muted, marginBottom: 4 }}>DATE</label>
-                  <input type="date" value={blockDate} min={new Date().toISOString().slice(0,10)} onChange={e => setBlockDate(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }} />
+                <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.muted, marginBottom: 8 }}>SELECT DATES</label>
+                  <CalendarPicker blockDates={blockDates} setBlockDates={setBlockDates} />
                 </div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.muted, marginBottom: 4 }}>TYPE</label>
                   <select value={blockType} onChange={e => setBlockType(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }}>
                     <option value="blocked">🚫 Blocked</option>
                     <option value="open_play">🏓 Open Play</option>
+                    <option value="message_request">💬 Message to Request</option>
                   </select>
                 </div>
               </div>
@@ -352,11 +488,11 @@ export default function AdminApp() {
               {blockedSlots.length > 0 && (
                 <div style={{ marginTop: 20 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.muted, textTransform: "uppercase", marginBottom: 8 }}>Current Blocked / Open Play Slots</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto", paddingRight: 4 }}>
                     {blockedSlots.map(s => (
-                      <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 8, background: s.type === "open_play" ? "#EEF6DC" : "#FFF7E0", border: `1px solid ${s.type === "open_play" ? "#D9EAB0" : "#F0D98A"}` }}>
+                      <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 8, background: s.type === "open_play" ? "#EEF6DC" : s.type === "message_request" ? "#EAF0FB" : "#FFF7E0", border: `1px solid ${s.type === "open_play" ? "#D9EAB0" : s.type === "message_request" ? "#B8CCF0" : "#F0D98A"}` }}>
                         <span style={{ fontSize: 13, color: COLORS.navy }}>
-                          {s.type === "open_play" ? "🏓 Open Play" : "🚫 Blocked"} — {s.court} · {formatDateNice(s.date)} · {fmtHour(s.hour)}–{fmtHour(s.hour + 1)}
+                          {s.type === "open_play" ? "🏓 Open Play" : s.type === "message_request" ? "💬 Message to Request" : "🚫 Blocked"} — {s.court} · {formatDateNice(s.date)} · {fmtHour(s.hour)}–{fmtHour(s.hour + 1)}
                         </span>
                         <button onClick={() => handleRemoveBlock(s.id)} style={{ fontSize: 11, padding: "4px 10px", background: "#FDECEC", color: "#8A2323", border: "1px solid #F5C6C6", borderRadius: 6, cursor: "pointer", fontWeight: 700 }}>
                           Remove
@@ -375,15 +511,45 @@ export default function AdminApp() {
           <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13 }}>{actionMsg}</div>
         )}
 
+        {/* Booking filter tabs */}
+        <div style={{ display: "flex", gap: 0, marginBottom: 0, background: "#fff", borderRadius: "14px 14px 0 0", border: `1px solid ${COLORS.border}`, borderBottom: "none", overflow: "hidden" }}>
+          {[
+            { key: "pending", label: "⏳ Needs Action", count: bookings.filter(b => b.status === "pending_payment").length },
+            { key: "confirmed", label: "✅ Confirmed", count: bookings.filter(b => b.status === "confirmed").length },
+            { key: "all", label: "All Bookings", count: bookings.length },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setBookingFilter(tab.key)}
+              style={{
+                flex: 1, padding: "12px 8px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700,
+                background: bookingFilter === tab.key ? "#fff" : "#F4F5F0",
+                color: bookingFilter === tab.key ? COLORS.navy : COLORS.muted,
+                borderBottom: bookingFilter === tab.key ? `2px solid ${COLORS.navy}` : "2px solid transparent",
+              }}
+            >
+              {tab.label} {tab.count > 0 && <span style={{ background: bookingFilter === tab.key ? COLORS.navy : "#D7DBD1", color: bookingFilter === tab.key ? "#fff" : COLORS.muted, borderRadius: 20, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{tab.count}</span>}
+            </button>
+          ))}
+        </div>
+
         {/* Bookings table */}
-        <div style={{ background: "#fff", borderRadius: 14, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
+        <div style={{ background: "#fff", borderRadius: "0 0 14px 14px", overflow: "hidden", border: `1px solid ${COLORS.border}`, borderTop: "none" }}>
+          {(() => {
+            const filtered = bookingFilter === "pending"
+              ? bookings.filter(b => b.status === "pending_payment")
+              : bookingFilter === "confirmed"
+              ? bookings.filter(b => b.status === "confirmed")
+              : bookings;
+            return (
+          <>
           {loadingBookings ? (
             <div style={{ padding: 24, textAlign: "center", color: COLORS.muted }}>Loading bookings…</div>
-          ) : bookings.length === 0 ? (
-            <div style={{ padding: 24, textAlign: "center", color: COLORS.muted }}>No bookings yet.</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: COLORS.muted }}>{bookingFilter === "pending" ? "No pending bookings. 🎉" : bookingFilter === "confirmed" ? "No confirmed bookings yet." : "No bookings yet."}</div>
           ) : isMobile ? (
             <div style={{ display: "flex", flexDirection: "column" }}>
-              {bookings.map((b) => (
+              {filtered.map((b) => (
                 <div key={b.id} style={{ padding: 14, borderBottom: `1px solid ${COLORS.border}` }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontWeight: 700, color: COLORS.navy, fontSize: 15 }}>{b.ref}</span>
@@ -431,7 +597,7 @@ export default function AdminApp() {
                   </tr>
                 </thead>
                 <tbody>
-                  {bookings.map((b) => (
+                  {filtered.map((b) => (
                     <tr key={b.id}>
                       <td style={{ ...tdStyle, fontWeight: 700 }}>{b.ref}</td>
                       <td style={tdStyle}>{b.customer_name}</td>
@@ -463,6 +629,9 @@ export default function AdminApp() {
               </table>
             </div>
           )}
+          </>
+            );
+          })()}
         </div>
       </div>
     </div>
