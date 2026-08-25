@@ -41,8 +41,6 @@ const PEAK_RATE = 350;
 // Where you put your own GCash/Maya QR image. Drop a file named
 // gcash-qr.jpg into the /public folder and this path will pick it up.
 const GCASH_QR_SRC = "/gcash-qr.jpg";
-const GCASH_NAME = "Caitlain Grace Patalinghug";
-const GCASH_NUMBER = "0927 837 9384";
 const FACEBOOK_URL = "https://www.facebook.com/profile.php?id=61591661855012";
 
 function buildDates() {
@@ -565,8 +563,8 @@ export default function BookingFlow() {
                     QR image not found. Make sure <code>gcash-qr.jpg</code> is inside the <code>public</code> folder, spelled exactly that way (check it isn't secretly named <code>gcash-qr.jpg.jpg</code>).
                   </div>
                 )}
-                <div style={{ fontSize: 13, color: COLORS.muted, marginTop: 10 }}>{GCASH_NAME} · {GCASH_NUMBER}</div>
-                <div style={{ fontSize: 12, color: COLORS.mutedSoft, marginTop: 4 }}>Pay {peso(total)}, then upload proof below.</div>
+                <div style={{ fontSize: 13, color: COLORS.muted, marginTop: 10 }}></div>
+                <div style={{ fontSize: 12, color: COLORS.mutedSoft, marginTop: 4 }}>Please scan the QR code above and pay {peso(total)}, then upload proof below.</div>
               </div>
 
               <label style={{ display: "block" }}>
