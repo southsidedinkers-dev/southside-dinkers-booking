@@ -204,17 +204,30 @@ export default function BookingFlow() {
 
   const slots = useMemo(() => {
     const arr = [];
-    for (let h = 5; h <= 26; h++) {
+    // Check if selected date is today — if so, mark past hours
+    const todayIso = isoLocal(todayInManila());
+    const isToday = day.iso === todayIso;
+    // Current hour in Manila time
+    const nowManila = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+    const currentHour = nowManila.getHours();
+    // Order: 12AM, 1AM, 2AM first (always message_request), then 5AM through 11PM
+    const hourOrder = [0, 1, 2, ...Array.from({length: 19}, (_, i) => i + 5)]; // 0,1,2,5,6,...,23
+    const ALWAYS_MESSAGE_REQUEST = new Set([0, 1, 2]); // 12AM, 1AM, 2AM always require messaging
+    for (const h of hourOrder) {
       const peak = isPeak(h);
       const booked = bookedHours.has(h);
-      const blockedType = blockedSlotMap[h] || null; // 'blocked' | 'open_play' | null
+      const blockedType = ALWAYS_MESSAGE_REQUEST.has(h) ? "message_request" : (blockedSlotMap[h] || null);
+      // For hours >= 24 (1am, 2am next day), normalise for comparison
+      const normH = h % 24;
+      // A slot is past if today is selected AND the hour has already started
+      const isPastSlot = isToday && normH <= currentHour;
       const key = "h" + h;
-      arr.push({ key, hour: h, time: fmtHour(h), peak, booked, blockedType, price: peak ? PEAK_RATE : OFF_PEAK_RATE });
+      arr.push({ key, hour: h, time: fmtHour(h), peak, booked, blockedType, isPastSlot, price: peak ? PEAK_RATE : OFF_PEAK_RATE });
     }
     return arr;
-  }, [bookedHours, blockedSlotMap]);
+  }, [bookedHours, blockedSlotMap, day.iso]);
 
-  const picked = slots.filter((s) => sel[s.key] && !s.booked && !s.blockedType);
+  const picked = slots.filter((s) => sel[s.key] && !s.booked && !s.blockedType && !s.isPastSlot);
   const total = picked.reduce((t, s) => t + s.price, 0);
 
   function toggleSlot(s) {
@@ -348,6 +361,7 @@ export default function BookingFlow() {
   });
   const slotStyle = (s, isSel) => {
     const base = { display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", justifyContent: "center", minHeight: 58, padding: "9px 12px", borderRadius: 13, fontFamily: "inherit", textAlign: "left" };
+    if (s.isPastSlot && !s.booked) return { ...base, background: "#F9FAFB", border: "1px solid #E4E6DD", color: "#C4CACC", cursor: "not-allowed", textDecoration: "line-through" };
     if (s.blockedType === "blocked") return { ...base, background: "#F0F1EC", border: "1px solid #ECEEE7", color: "#B4BCB2", cursor: "default" };
     if (s.blockedType === "message_request") return { ...base, cursor: "pointer" };
     if (s.blockedType === "open_play") return { ...base, background: "#EEF6DC", border: "1px solid #D9EAB0", color: "#3C4A22", cursor: "default" };
@@ -485,7 +499,7 @@ export default function BookingFlow() {
                       <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.75 }}>Tap to join on Reclub</span>
                     </a>
                   ) : (
-                  <button key={s.key} disabled={s.booked || (!!s.blockedType && s.blockedType !== "message_request") || loadingSlots} onClick={() => s.blockedType === "message_request" ? window.open("https://www.facebook.com/profile.php?id=61591661855012", "_blank") : toggleSlot(s)} style={slotStyle(s, !!sel[s.key] && !s.booked && !s.blockedType)}>
+                  <button key={s.key} disabled={s.booked || s.isPastSlot || (!!s.blockedType && s.blockedType !== "message_request") || loadingSlots} onClick={() => s.blockedType === "message_request" ? window.open("https://www.facebook.com/profile.php?id=61591661855012", "_blank") : toggleSlot(s)} style={slotStyle(s, !!sel[s.key] && !s.booked && !s.blockedType && !s.isPastSlot)}>
                     <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 17 }}>{s.time} - {fmtHour(s.hour + 1)}</span>
                     <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".3px", textTransform: "uppercase" }}>
                       {s.booked ? "Booked" : s.blockedType === "blocked" ? "Blocked" : s.blockedType === "message_request" ? "Message us to request" : "Available"}
@@ -547,24 +561,23 @@ export default function BookingFlow() {
                 </div>
               </div>
 
-              <div style={{ background: "#fff", border: `1px solid ${COLORS.borderSoft}`, borderRadius: 16, padding: 18, textAlign: "center", marginBottom: 16 }}>
-                <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 14, textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 10 }}>
-                  Scan to pay via GCash
+              <div style={{ background: "#fff", border: `1px solid ${COLORS.borderSoft}`, borderRadius: 16, padding: 18, marginBottom: 16 }}>
+                <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 14, textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 12, textAlign: "center" }}>
+                  Pay via GCash
                 </div>
-                <img
-                  src={GCASH_QR_SRC}
-                  alt="GCash QR code"
-                  style={{ width: 180, height: 180, objectFit: "contain", margin: "0 auto", display: qrBroken ? "none" : "block", border: `1px solid ${COLORS.border}`, borderRadius: 12, background: "#fafafa" }}
-                  onError={() => setQrBroken(true)}
-                  onLoad={() => setQrBroken(false)}
-                />
-                {qrBroken && (
-                  <div style={{ fontSize: 12, color: "#8A2323", background: "#FDECEC", border: "1px solid #F5C6C6", borderRadius: 10, padding: "8px 10px" }}>
-                    QR image not found. Make sure <code>gcash-qr.jpg</code> is inside the <code>public</code> folder, spelled exactly that way (check it isn't secretly named <code>gcash-qr.jpg.jpg</code>).
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ background: "#F0F9F4", border: "1px solid #BBF0D4", borderRadius: 12, padding: "14px 16px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6E7788", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>GCash Account 1</div>
+                    <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 16, color: "#1B2E57" }}>CA***N GR**E P.</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1B2E57", marginTop: 2 }}>+63 927 837 9384</div>
                   </div>
-                )}
-                <div style={{ fontSize: 13, color: COLORS.muted, marginTop: 10 }}></div>
-                <div style={{ fontSize: 12, color: COLORS.mutedSoft, marginTop: 4 }}>Please scan the QR code above and pay {peso(total)}, then upload proof below.</div>
+                  <div style={{ background: "#F0F9F4", border: "1px solid #BBF0D4", borderRadius: 12, padding: "14px 16px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6E7788", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>GCash Account 2</div>
+                    <div style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 800, fontSize: 16, color: "#1B2E57" }}>NE*L JA**S B.</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1B2E57", marginTop: 2 }}>+61 468 490 259</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.mutedSoft, marginTop: 10, textAlign: "center" }}>Send {peso(total)} to either account above, then upload your payment screenshot below.</div>
               </div>
 
               <label style={{ display: "block" }}>
@@ -595,7 +608,7 @@ export default function BookingFlow() {
                   This is NOT a confirmed booking yet
                 </div>
                 <div style={{ fontSize: 13, color: "#7A5D00", marginTop: 4 }}>
-                  We have received your request and your slot is already reserved. We are verifying your payment — once confirmed, you will receive a confirmation email.
+                  We have received your request. We are verifying your payment and court availability — once confirmed, you will receive a confirmation email.
                 </div>
                 <div style={{ fontSize: 13, color: "#7A5D00", marginTop: 8 }}>
                   Confirmation may take a few minutes. If you have not received your confirmation email within 2 hours, please reach out to us on{" "}
